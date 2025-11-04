@@ -7,7 +7,10 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::ffi::sqlite3_auto_extension;
 use sqlite_vec::sqlite3_vec_init;
 
+use crate::workers::dir_scanner;
+
 mod search;
+mod workers;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -20,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
         sqlite3_auto_extension(Some(std::mem::transmute(sqlite3_vec_init as *const ())));
     }
 
-    let manager = SqliteConnectionManager::file("example.db");
+    let manager = SqliteConnectionManager::file("data.sqlite");
     let pool = Pool::builder()
         .max_size(10)
         .build(manager)?;
@@ -28,11 +31,49 @@ async fn main() -> anyhow::Result<()> {
     {
         let conn = pool.get()?;
         conn.execute_batch(
-            r#"
-                CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(title, content);
-                CREATE VIRTUAL TABLE IF NOT EXISTS vec_items USING vec0(embedding float[1024])
-                "#
+        r#"
+PRAGMA journal_mode=WAL;
+
+-- Directories to scan
+CREATE TABLE IF NOT EXISTS dir_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT UNIQUE NOT NULL,
+    status TEXT CHECK(status IN ('pending', 'scanning', 'done', 'error')) DEFAULT 'pending',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Files to index
+CREATE TABLE IF NOT EXISTS file_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT UNIQUE NOT NULL,
+    dir_id INTEGER REFERENCES dir_queue(id) ON DELETE CASCADE,
+    status TEXT CHECK(status IN ('pending', 'scanning', 'done', 'error')) DEFAULT 'pending',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    error TEXT
+);
+
+-- Actual full-text search table
+CREATE VIRTUAL TABLE IF NOT EXISTS documents USING fts5(
+    file_path,
+    chunk_index UNINDEXED,
+    content
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(embedding float[1024]);
+
+INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools');
+            "#
         )?;
+    }
+
+    {
+        let conn = pool.get()?;
+        // let pool = pool.clone();
+        tokio::spawn(async move {
+            if let Err(e) = dir_scanner(conn).await {
+                eprint!("Error in dir scanner: {e:?}");
+            }
+        });
     }
 
     #[allow(deprecated)]
