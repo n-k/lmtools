@@ -1,0 +1,29 @@
+[package]
+name = "lmtools"
+version = "0.1.0"
+authors = ["nk <nipunkumar@outlook.com>"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = [
+    "time",
+    "macros",
+    "rt-multi-thread",
+] }
+dioxus = { version = "0.7.0", features = ["router"] }
+dioxus-native = { version = "0.7.0" }
+dioxus-primitives = { git = "https://github.com/DioxusLabs/components.git" }
+llama-cpp-2 = { path = "../llama-cpp-rs/llama-cpp-2", features=["cuda"] }
+rusqlite = { version = "0.37.0", features = ["load_extension"] }
+sqlite-vec = "0.1.6"
+r2d2 = "0.8"
+r2d2_sqlite = "0.31"
+bytemuck = "1.15"
+
+[features]
+default = ["native"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
+native = ["dioxus/native"]
