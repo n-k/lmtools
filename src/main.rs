@@ -24,14 +24,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let manager = SqliteConnectionManager::file("data.sqlite");
-    let pool = Pool::builder()
-        .max_size(10)
-        .build(manager)?;
+    let pool = Pool::builder().max_size(10).build(manager)?;
 
     {
         let conn = pool.get()?;
         conn.execute_batch(
-        r#"
+            r#"
 PRAGMA journal_mode=WAL;
 
 -- Directories to scan
@@ -62,7 +60,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS documents USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(embedding float[1024]);
 
 INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools');
-            "#
+            "#,
         )?;
     }
 
@@ -87,9 +85,7 @@ INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools')
 
     #[allow(deprecated)]
     LaunchBuilder::new()
-        .with_context_provider(move || {
-            Box::new(Rc::new(pool.get().unwrap()))
-        })
+        .with_context_provider(move || Box::new(Rc::new(pool.get().unwrap())))
         .launch(App);
 
     Ok(())

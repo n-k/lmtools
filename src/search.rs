@@ -13,7 +13,9 @@ pub fn Search() -> Element {
     });
     let mut search = use_resource(move || async move {
         let q = query.cloned();
-        if q.is_empty() {return ();}
+        if q.is_empty() {
+            return ();
+        }
         query.set("".to_string());
 
         ()
@@ -82,9 +84,8 @@ impl FilesScanStatus {
 }
 
 fn get_scan_status(conn: AppDb) -> anyhow::Result<FilesScanStatus> {
-    let mut stmt = conn
-        .prepare(
-            r#"
+    let mut stmt = conn.prepare(
+        r#"
 WITH all_statuses(status) AS (
   VALUES ('pending'), ('scanning'), ('done'), ('error')
 )
@@ -98,7 +99,7 @@ LEFT JOIN
 GROUP BY
   a.status;
         "#,
-        )?;
+    )?;
     let mut rows = stmt.query([])?;
     let mut scan_status = FilesScanStatus {
         pending: 0,
