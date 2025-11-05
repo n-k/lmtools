@@ -7,7 +7,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::ffi::sqlite3_auto_extension;
 use sqlite_vec::sqlite3_vec_init;
 
-use crate::workers::dir_scanner;
+use crate::workers::{dir_scanner, file_scanner};
 
 mod search;
 mod workers;
@@ -67,11 +67,20 @@ INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools')
     }
 
     {
-        let conn = pool.get()?;
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            if let Err(e) = dir_scanner(pool).await {
+                eprint!("Error in dir scanner: {e:?}");
+            }
+        });
+    }
+
+    {
+        let pool = pool.clone();
         // let pool = pool.clone();
         tokio::spawn(async move {
-            if let Err(e) = dir_scanner(conn).await {
-                eprint!("Error in dir scanner: {e:?}");
+            if let Err(e) = file_scanner(pool).await {
+                eprint!("Error in file scanner: {e:?}");
             }
         });
     }
