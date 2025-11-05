@@ -1,25 +1,30 @@
 use dioxus::prelude::*;
+use rusqlite::params;
+use zerocopy::IntoBytes;
 
-use crate::AppDb;
+use crate::{AppDb, workers::get_embedding};
 
 #[component]
 pub fn Search() -> Element {
     let mut query = use_signal(|| "".to_string());
+    let mut search_results: Signal<Vec<FTSResult>> = use_signal(|| vec![]);
     let mut status = use_resource(|| async move {
         let conn: crate::AppDb = consume_context();
         let scan_status = get_scan_status(conn).unwrap();
 
         scan_status
     });
-    let mut search = use_resource(move || async move {
-        let q = query.cloned();
-        if q.is_empty() {
-            return ();
-        }
-        query.set("".to_string());
-
-        ()
-    });
+    let search = move |q: String| async move {
+        let conn: crate::AppDb = consume_context();
+        let sr = match fts(conn, &q) {
+            Err(e) => {
+                eprintln!("{e:?}");
+                vec![]
+            },
+            Ok(res) => res,
+        };
+        search_results.set(sr);
+    };
     let scan_status = status.cloned().unwrap_or_default();
     let st = scan_status.to_percent();
     rsx! {
@@ -34,32 +39,120 @@ pub fn Search() -> Element {
             ",
             div {
                 style: "
+                flex-grow: 0;
                 display: flex;
                 flex-direction: row;
-                height: 1em;
                 width: 100%;
-                border: 1px solid green;
                 ",
-                div {style: "width: {st.error}%; background-color: red;", ""}
-                div {style: "width: {st.done}%; background-color: green;", ""}
-                div {style: "width: {st.scanning}%; background-color: blue;", ""}
-                div {style: "width: {st.pending}%; background-color: white;", ""}
+                div {
+                    style: "
+                    flex-grow: 1;
+                    display: flex;
+                    flex-direction: row;
+                    min-height: 1em;
+                    width: 100%;
+                    ",
+                    div {style: "width: {st.error}%; background-color: red;", " "}
+                    div {style: "width: {st.done}%; background-color: green;", " "}
+                    div {style: "width: {st.scanning}%; background-color: blue;", " "}
+                    div {style: "width: {st.pending}%; background-color: white;", " "}
+                }
+                button {
+                    style: "flex-grow: 0;",
+                    onclick: move |_| { status.restart(); },
+                    "Refresh"
+                }
             }
-            button {
-                onclick: move |_| { status.restart(); },
-                "Refresh Status"
-            }
-            input {
-                value: query.cloned(),
-                oninput: move |e| { query.set(e.value()); },
-                onkeypress: move |e| {
-                    if Key::Enter == e.data.key() {
-                        search.restart();
-                    }
+            div {
+                style: "
+                flex-grow: 0;
+                display: flex;
+                flex-direction: row;
+                ",
+                input {
+                    style: "flex-grow: 1;",
+                    value: query.cloned(),
+                    oninput: move |e| { query.set(e.value()); },
                 },
+                button {
+                    style: "flex-grow: 0;",
+                    onclick: move |_| {
+                        let q = query.cloned();
+                        search_results.set(vec![]);
+                        if q.is_empty() { return; }
+                        spawn(async move {
+                            search(q).await;
+                        });
+                    },
+                    ">"
+                }
+            }
+            div {
+                style: "
+                flex-grow: 1;
+                overflow: auto;
+                ",
+                for r in search_results.cloned() {
+                    div {
+                        "{r.file_path} {r.chunk_index}"
+                        div {
+                            style: "
+                            font-size: 6px;
+                            ",
+                            "{r.chunk}"
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+#[derive(Clone)]
+struct FTSResult {
+    file_path: String,
+    chunk_index: usize,
+    chunk: String,
+}
+
+fn fts(conn: AppDb, query: &str) -> anyhow::Result<Vec<FTSResult>> {
+    let mut results = vec![];
+    // let mut stmt = conn.prepare(
+    //     r#"
+    //     SELECT file_path, chunk_index, content, bm25(documents) AS score
+    //     FROM documents
+    //     WHERE documents MATCH ?1
+    //     ORDER BY score
+    //     LIMIT 10;
+    //     "#,
+    // )?;
+    // let mut rows = stmt.query(params![query])?;
+    // while let Some(row) = rows.next()? {
+    //     results.push(FTSResult { 
+    //         file_path: row.get(0)?, 
+    //         chunk_index: row.get(1)?, 
+    //         chunk: row.get(2)?,
+    //     });
+    // }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT file_path, chunk_index, content
+        FROM embeddings
+        WHERE embedding MATCH ?
+        ORDER BY distance
+        LIMIT 5;
+        "#,
+    )?;
+    let embedding = get_embedding(query)?;
+    let mut rows = stmt.query(params![embedding.as_bytes()])?;
+    while let Some(row) = rows.next()? {
+        results.push(FTSResult { 
+            file_path: row.get(0)?, 
+            chunk_index: row.get(1)?, 
+            chunk: row.get(2)?,
+        });
+    }
+    Ok(results)
 }
 
 #[derive(Default, Clone)]

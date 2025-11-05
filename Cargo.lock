@@ -4076,7 +4076,7 @@ dependencies = [
  "r2d2_sqlite",
  "rusqlite",
  "sqlite-vec",
- "tokio",
+ "zerocopy",
 ]
 
 [[package]]

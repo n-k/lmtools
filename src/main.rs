@@ -17,8 +17,8 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 pub type AppDb = Rc<PooledConnection<SqliteConnectionManager>>;
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> anyhow::Result<()> {
+// #[tokio::main(flavor = "multi_thread")]
+fn main() -> anyhow::Result<()> {
     unsafe {
         sqlite3_auto_extension(Some(std::mem::transmute(sqlite3_vec_init as *const ())));
     }
@@ -52,36 +52,38 @@ CREATE TABLE IF NOT EXISTS file_queue (
 
 -- Actual full-text search table
 CREATE VIRTUAL TABLE IF NOT EXISTS documents USING fts5(
-    file_path,
+    file_path UNINDEXED,
     chunk_index UNINDEXED,
     content
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(embedding float[1024]);
+CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(
+    file_path TEXT,
+    chunk_index INTEGER,
+    content TEXT,
+    embedding float[384]
+);
 
 INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools');
             "#,
         )?;
     }
 
-    {
-        let pool = pool.clone();
-        tokio::spawn(async move {
-            if let Err(e) = dir_scanner(pool).await {
-                eprint!("Error in dir scanner: {e:?}");
+    let _pool = pool.clone();
+    let _h2 = std::thread::Builder::new()
+        .spawn(move || {
+            if let Err(e) = dir_scanner(_pool) {
+                eprintln!("Error in dir scanner: {e:?}"); 
             }
-        });
-    }
+        })?;
 
-    {
-        let pool = pool.clone();
-        // let pool = pool.clone();
-        tokio::spawn(async move {
-            if let Err(e) = file_scanner(pool).await {
-                eprint!("Error in file scanner: {e:?}");
+    let _pool = pool.clone();
+    let _h2 = std::thread::Builder::new()
+        .spawn(move || {
+            if let Err(e) = file_scanner(_pool) {
+                eprintln!("Error in file scanner: {e:?}"); 
             }
-        });
-    }
+        })?;
 
     #[allow(deprecated)]
     LaunchBuilder::new()
@@ -93,7 +95,6 @@ INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools')
 
 #[component]
 fn App() -> Element {
-    let _db: AppDb = consume_context();
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }

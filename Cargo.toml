@@ -6,11 +6,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1", features = [
-    "time",
-    "macros",
-    "rt-multi-thread",
-] }
 dioxus = { version = "0.7.0", features = ["router"] }
 dioxus-native = { version = "0.7.0" }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components.git" }
@@ -20,6 +15,7 @@ sqlite-vec = "0.1.6"
 r2d2 = "0.8"
 r2d2_sqlite = "0.31"
 bytemuck = "1.15"
+zerocopy = "0.8"
 
 [features]
 default = ["native"]
