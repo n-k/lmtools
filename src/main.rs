@@ -7,8 +7,9 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::ffi::sqlite3_auto_extension;
 use sqlite_vec::sqlite3_vec_init;
 
-use crate::workers::{dir_scanner, file_scanner};
+use crate::workers::dir_scanner;
 
+mod lm;
 mod search;
 mod workers;
 
@@ -74,14 +75,6 @@ INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools')
         .spawn(move || {
             if let Err(e) = dir_scanner(_pool) {
                 eprintln!("Error in dir scanner: {e:?}"); 
-            }
-        })?;
-
-    let _pool = pool.clone();
-    let _h2 = std::thread::Builder::new()
-        .spawn(move || {
-            if let Err(e) = file_scanner(_pool) {
-                eprintln!("Error in file scanner: {e:?}"); 
             }
         })?;
 

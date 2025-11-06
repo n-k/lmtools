@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use rusqlite::params;
 use zerocopy::IntoBytes;
 
-use crate::{AppDb, workers::get_embedding};
+use crate::{AppDb, lm::{get_embedding, get_embedding_model, get_llama_backend}};
 
 #[component]
 pub fn Search() -> Element {
@@ -94,10 +94,10 @@ pub fn Search() -> Element {
                 ",
                 for r in search_results.cloned() {
                     div {
-                        "{r.file_path} {r.chunk_index}"
+                        "{r.file_path} {r.chunk_index} {r.score}"
                         div {
                             style: "
-                            font-size: 6px;
+                            font-size: 10px;
                             ",
                             "{r.chunk}"
                         }
@@ -113,43 +113,48 @@ struct FTSResult {
     file_path: String,
     chunk_index: usize,
     chunk: String,
+    score: f32,
 }
 
 fn fts(conn: AppDb, query: &str) -> anyhow::Result<Vec<FTSResult>> {
     let mut results = vec![];
-    // let mut stmt = conn.prepare(
-    //     r#"
-    //     SELECT file_path, chunk_index, content, bm25(documents) AS score
-    //     FROM documents
-    //     WHERE documents MATCH ?1
-    //     ORDER BY score
-    //     LIMIT 10;
-    //     "#,
-    // )?;
-    // let mut rows = stmt.query(params![query])?;
-    // while let Some(row) = rows.next()? {
-    //     results.push(FTSResult { 
-    //         file_path: row.get(0)?, 
-    //         chunk_index: row.get(1)?, 
-    //         chunk: row.get(2)?,
-    //     });
-    // }
     let mut stmt = conn.prepare(
         r#"
-        SELECT file_path, chunk_index, content
+        SELECT file_path, chunk_index, content, bm25(documents) AS score
+        FROM documents
+        WHERE documents MATCH ?1
+        ORDER BY score
+        LIMIT 3;
+        "#,
+    )?;
+    let mut rows = stmt.query(params![query])?;
+    while let Some(row) = rows.next()? {
+        results.push(FTSResult { 
+            file_path: row.get(0)?, 
+            chunk_index: row.get(1)?, 
+            chunk: row.get(2)?,
+            score: row.get(3)?,
+        });
+    }
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT file_path, chunk_index, content, distance
         FROM embeddings
         WHERE embedding MATCH ?
         ORDER BY distance
-        LIMIT 5;
+        LIMIT 20;
         "#,
     )?;
-    let embedding = get_embedding(query)?;
+    let backend = get_llama_backend();
+    let model = get_embedding_model(backend)?;
+    let embedding = get_embedding(query, backend, &model)?;
     let mut rows = stmt.query(params![embedding.as_bytes()])?;
     while let Some(row) = rows.next()? {
         results.push(FTSResult { 
             file_path: row.get(0)?, 
             chunk_index: row.get(1)?, 
             chunk: row.get(2)?,
+            score: row.get(3)?,
         });
     }
     Ok(results)

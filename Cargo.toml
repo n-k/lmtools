@@ -9,7 +9,7 @@ anyhow = "1"
 dioxus = { version = "0.7.0", features = ["router"] }
 dioxus-native = { version = "0.7.0" }
 dioxus-primitives = { git = "https://github.com/DioxusLabs/components.git" }
-llama-cpp-2 = { path = "../llama-cpp-rs/llama-cpp-2", features=["cuda"] }
+llama-cpp-2 = { version = "0.1.124", features=["cuda"] }
 rusqlite = { version = "0.37.0", features = ["load_extension"] }
 sqlite-vec = "0.1.6"
 r2d2 = "0.8"
