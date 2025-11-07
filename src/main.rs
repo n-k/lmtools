@@ -4,7 +4,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::ffi::sqlite3_auto_extension;
+use rusqlite::{ffi::sqlite3_auto_extension, params};
 use sqlite_vec::sqlite3_vec_init;
 
 use crate::workers::dir_scanner;
@@ -64,9 +64,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(
     content TEXT,
     embedding float[384]
 );
-
-INSERT OR IGNORE INTO dir_queue (path) VALUES ('/home/nk/stuff/code/nk/lmtools');
             "#,
+        )?;
+        let cwd = std::env::current_dir()?.canonicalize()?;
+        let path = cwd.as_os_str().to_str().unwrap_or_else(|| "");
+        conn.execute(
+            "INSERT OR IGNORE INTO dir_queue (path) VALUES (?);", 
+            params![path],
         )?;
     }
 

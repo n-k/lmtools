@@ -9,7 +9,7 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension};
 use zerocopy::IntoBytes;
 
-use crate::lm::{get_embedding, get_embedding_model, get_llama_backend};
+use crate::lm::{get_embedding_model, get_llama_backend, tokenize_document_chunks};
 
 pub fn dir_scanner(pool: Pool<SqliteConnectionManager>) -> anyhow::Result<()> {
     let backend = get_llama_backend();
@@ -18,7 +18,7 @@ pub fn dir_scanner(pool: Pool<SqliteConnectionManager>) -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(100));
         let conn = pool.get()?;
         if !scan_1_dir(&conn)? {
-            if !scan_1_file(&conn, backend, &model)? {
+            if !scan_1_file(&conn, backend, &model).unwrap() {
                 // scan finished
                 return Ok(());
             }
@@ -101,20 +101,16 @@ fn scan_1_file(
     // Read and process the file
     match std::fs::read_to_string(&path) {
         Ok(content) => {
-            // Chunk the content
-            let chunks = chunk_text(&content, 512);
-
-            // Insert chunks into documents table
-            for (chunk_index, chunk) in chunks.into_iter().enumerate() {
+            let embedding_chunks = tokenize_document_chunks(&content, backend, model)?;
+            for (chunk_index, (chunk, embedding)) in embedding_chunks.into_iter().enumerate() {
                 conn.execute(
                     "INSERT INTO documents (file_path, chunk_index, content) VALUES (?, ?, ?)",
                     params![&path, chunk_index as i64, chunk],
                 )?;
-                let embedding = get_embedding(&chunk, backend, model)?;
                 conn.execute(
-                        "INSERT INTO embeddings (file_path, chunk_index, content, embedding) VALUES (?, ?, ?, ?)",
-                        params![&path, chunk_index as i64, chunk, embedding.as_bytes()],
-                    )?;
+                    "INSERT INTO embeddings (file_path, chunk_index, content, embedding) VALUES (?, ?, ?, ?)",
+                    params![&path, chunk_index as i64, chunk, embedding.as_bytes()],
+                )?;
             }
             conn.execute("UPDATE file_queue SET status='done' WHERE id=?", [id])?;
         }
@@ -226,31 +222,4 @@ fn is_text_file(path: &str) -> bool {
     }
 
     false
-}
-
-fn chunk_text(text: &str, max_chunk_size: usize) -> Vec<String> {
-    let mut chunks = Vec::new();
-    let mut start = 0;
-
-    while start < text.len() {
-        let end = std::cmp::min(start + max_chunk_size, text.len());
-
-        // Try to break at word boundaries if possible
-        let chunk_end = if end < text.len() {
-            // Look for last whitespace within the last 100 characters
-            let search_start = if end > 100 { end - 100 } else { start };
-            if let Some(last_space) = text[search_start..end].rfind(char::is_whitespace) {
-                search_start + last_space + 1
-            } else {
-                end
-            }
-        } else {
-            end
-        };
-
-        chunks.push(text[start..chunk_end].to_string());
-        start = chunk_end;
-    }
-
-    chunks
 }

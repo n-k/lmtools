@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use anyhow::{bail, Context};
@@ -5,7 +6,7 @@ use llama_cpp_2::{
     context::params::LlamaContextParams,
     llama_backend::LlamaBackend,
     llama_batch::LlamaBatch,
-    model::{params::LlamaModelParams, LlamaModel},
+    model::{LlamaModel, params::LlamaModelParams},
 };
 
 static LLAMA_CPP_BACKEND: OnceLock<LlamaBackend> = OnceLock::new();
@@ -25,6 +26,55 @@ pub fn get_embedding_model(backend: &LlamaBackend) -> anyhow::Result<LlamaModel>
     Ok(model)
 }
 
+pub fn tokenize_document_chunks(
+    text: &str, 
+    backend: &LlamaBackend,
+    model: &LlamaModel,
+) -> anyhow::Result<Vec<(String, Vec<f32>)>> {
+    let stopwords: HashSet<&'static str> = [
+        "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for", "is", "it",
+        "that", "this", "with", "as", "at", "by", "from",
+    ]
+    .into_iter()
+    .collect();
+
+    // Split, normalize, filter out stopwords
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| w.to_lowercase())
+        .filter(|w| !stopwords.contains(w.as_str()))
+        .collect();
+    let text = words.join(" ");
+    let tokens = model.str_to_token(&text, llama_cpp_2::model::AddBos::Never)?;
+    let chunks: Vec<_> = tokens.chunks(model.n_ctx_train() as usize).collect();
+
+    let ctx_params = LlamaContextParams::default()
+        .with_n_threads_batch(std::thread::available_parallelism()?.get().try_into()?)
+        .with_embeddings(true);
+    let mut ctx = model
+        .new_context(&backend, ctx_params)
+        .with_context(|| "unable to create the llama_context")?;
+    let mut batch = LlamaBatch::new(model.n_ctx_train() as usize, 1);
+    
+    let mut results = vec![];
+    for chunk in chunks {
+        let s = model.tokens_to_str(chunk, llama_cpp_2::model::Special::Tokenize)?;
+
+        batch.add_sequence(chunk, 0, false)?;
+        ctx.clear_kv_cache();
+        ctx.decode(&mut batch)
+            .with_context(|| "llama_decode() failed")?;
+        let embedding = ctx
+            .embeddings_seq_ith(0)
+            .with_context(|| "Failed to get embeddings")?;
+        batch.clear();
+        let embedding = normalize(embedding);
+
+        results.push((s, embedding));
+    }
+    Ok(results)
+}
+
 pub fn get_embedding(
     s: &str,
     backend: &LlamaBackend,
@@ -37,7 +87,7 @@ pub fn get_embedding(
         .new_context(&backend, ctx_params)
         .with_context(|| "unable to create the llama_context")?;
 
-    let tokens = model.str_to_token(s, llama_cpp_2::model::AddBos::Always)?;
+    let tokens = model.str_to_token(s, llama_cpp_2::model::AddBos::Never)?;
 
     if tokens.len() > model.n_ctx_train() as usize {
         bail!("input longer than context length");
