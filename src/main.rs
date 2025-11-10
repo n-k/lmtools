@@ -18,7 +18,6 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 
 pub type AppDb = Rc<PooledConnection<SqliteConnectionManager>>;
 
-// #[tokio::main(flavor = "multi_thread")]
 fn main() -> anyhow::Result<()> {
     unsafe {
         sqlite3_auto_extension(Some(std::mem::transmute(sqlite3_vec_init as *const ())));
@@ -66,21 +65,21 @@ CREATE VIRTUAL TABLE IF NOT EXISTS embeddings USING vec0(
 );
             "#,
         )?;
-        let cwd = std::env::current_dir()?.canonicalize()?;
-        let path = cwd.as_os_str().to_str().unwrap_or_else(|| "");
+        // let cwd = std::env::current_dir()?.canonicalize()?;
+        // let path = cwd.as_os_str().to_str().unwrap_or_else(|| "");
+        let path = "/home/nk/Documents/Gutenberg_Text/Austen, Jane";
         conn.execute(
-            "INSERT OR IGNORE INTO dir_queue (path) VALUES (?);", 
+            "INSERT OR IGNORE INTO dir_queue (path) VALUES (?);",
             params![path],
         )?;
     }
 
     let _pool = pool.clone();
-    let _h2 = std::thread::Builder::new()
-        .spawn(move || {
-            if let Err(e) = dir_scanner(_pool) {
-                eprintln!("Error in dir scanner: {e:?}"); 
-            }
-        })?;
+    let _h2 = std::thread::Builder::new().spawn(move || {
+        if let Err(e) = dir_scanner(_pool) {
+            eprintln!("Error in dir scanner: {e:?}");
+        }
+    })?;
 
     #[allow(deprecated)]
     LaunchBuilder::new()

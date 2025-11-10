@@ -2,7 +2,13 @@ use dioxus::prelude::*;
 use rusqlite::params;
 use zerocopy::IntoBytes;
 
-use crate::{AppDb, lm::{get_embedding, get_embedding_model, get_llama_backend}};
+use crate::{
+    lm::{
+        get_cross_encoding_rank, get_embedding, get_embedding_model, get_llama_backend,
+        get_reranking_model,
+    },
+    AppDb,
+};
 
 #[component]
 pub fn Search() -> Element {
@@ -20,7 +26,7 @@ pub fn Search() -> Element {
             Err(e) => {
                 eprintln!("{e:?}");
                 vec![]
-            },
+            }
             Ok(res) => res,
         };
         search_results.set(sr);
@@ -124,39 +130,54 @@ fn fts(conn: AppDb, query: &str) -> anyhow::Result<Vec<FTSResult>> {
         FROM documents
         WHERE documents MATCH ?1
         ORDER BY score
-        LIMIT 3;
+        LIMIT 10;
         "#,
     )?;
     let mut rows = stmt.query(params![query])?;
     while let Some(row) = rows.next()? {
-        results.push(FTSResult { 
-            file_path: row.get(0)?, 
-            chunk_index: row.get(1)?, 
+        results.push(FTSResult {
+            file_path: row.get(0)?,
+            chunk_index: row.get(1)?,
             chunk: row.get(2)?,
             score: row.get(3)?,
         });
     }
+    let backend = get_llama_backend();
+    let embedding = {
+        let embedding_model = get_embedding_model(backend)?;
+        get_embedding(query, backend, &embedding_model)?
+    };
     let mut stmt = conn.prepare(
         r#"
         SELECT file_path, chunk_index, content, distance
         FROM embeddings
         WHERE embedding MATCH ?
         ORDER BY distance
-        LIMIT 20;
+        LIMIT 10;
         "#,
     )?;
-    let backend = get_llama_backend();
-    let model = get_embedding_model(backend)?;
-    let embedding = get_embedding(query, backend, &model)?;
     let mut rows = stmt.query(params![embedding.as_bytes()])?;
     while let Some(row) = rows.next()? {
-        results.push(FTSResult { 
-            file_path: row.get(0)?, 
-            chunk_index: row.get(1)?, 
+        results.push(FTSResult {
+            file_path: row.get(0)?,
+            chunk_index: row.get(1)?,
             chunk: row.get(2)?,
             score: row.get(3)?,
         });
     }
+    let model = get_reranking_model(backend)?;
+    for r in &mut results {
+        let rank = get_cross_encoding_rank(query, &r.chunk, backend, &model)?;
+        // println!("{:?}", rank);
+        r.score = rank[0];
+    }
+    results.sort_by(|a, b| {
+        a.score
+            .partial_cmp(&b.score)
+            .unwrap_or_else(|| std::cmp::Ordering::Equal)
+    });
+    results.reverse();
+
     Ok(results)
 }
 

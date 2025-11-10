@@ -1,3 +1,8 @@
+[bundle]
+identifier = "io.github.nk"
+publisher = "nk"
+icon = ["assets/favicon.png"]
+
 [application]
 
 [web.app]

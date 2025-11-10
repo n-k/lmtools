@@ -6,10 +6,10 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-dioxus = { version = "0.7.0", features = ["router"] }
-dioxus-native = { version = "0.7.0" }
-dioxus-primitives = { git = "https://github.com/DioxusLabs/components.git" }
-llama-cpp-2 = { version = "0.1.124" }
+dioxus = { version = "0.7.1", default-features=false, features = ["launch", "logger", "lib", "router"] }
+dioxus-native = { version = "0.7.1" }
+# dioxus-primitives = { git = "https://github.com/DioxusLabs/components.git" }
+llama-cpp-2 = { path = "../llama-cpp-rs/llama-cpp-2", version = "0.1.124", default-features=false, features=["mtmd"] }
 rusqlite = { version = "0.37.0", features = ["bundled", "load_extension"] }
 sqlite-vec = "0.1.6"
 r2d2 = "0.8"
@@ -18,10 +18,10 @@ bytemuck = "1.15"
 zerocopy = "0.8"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-llama-cpp-2 = { version = "0.1.124", features=["cuda"] }
+llama-cpp-2 = { path = "../llama-cpp-rs/llama-cpp-2", version = "0.1.124", default-features=false, features=["cuda"] }
 
 [features]
-default = ["desktop"]
+default = ["native"]
 web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]

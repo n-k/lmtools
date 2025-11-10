@@ -1,9 +1,4 @@
-use std::time::Duration;
-
-use llama_cpp_2::{
-    llama_backend::LlamaBackend,
-    model::LlamaModel,
-};
+use llama_cpp_2::{llama_backend::LlamaBackend, model::LlamaModel};
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension};
@@ -14,9 +9,10 @@ use crate::lm::{get_embedding_model, get_llama_backend, tokenize_document_chunks
 pub fn dir_scanner(pool: Pool<SqliteConnectionManager>) -> anyhow::Result<()> {
     let backend = get_llama_backend();
     let model = get_embedding_model(backend)?;
+    let conn = pool.get()?;
     loop {
-        std::thread::sleep(Duration::from_millis(100));
-        let conn = pool.get()?;
+        conn.cache_flush()?;
+        // std::thread::sleep(Duration::from_millis(10));
         if !scan_1_dir(&conn)? {
             if !scan_1_file(&conn, backend, &model).unwrap() {
                 // scan finished
